@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>3D Photo Viewer</title>
+<style>
+html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:sans-serif}
+
+/* main 3D canvas */
+#c{width:100vw;height:100vh;position:relative}
+
+/* phone-style viewer box */
+#v{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(95vw,360px);height:80vh;background:#111;
+  border-radius:30px;border:6px solid #222;box-shadow:0 0 25px rgba(0,0,0,.7);
+  display:none;z-index:20;color:#fff;text-align:center
+}
+#v::before{
+  content:"";display:block;width:50px;height:5px;background:#555;border-radius:3px;
+  position:absolute;top:8px;left:50%;transform:translateX(-50%)
+}
+#v img{width:100%;height:calc(100% - 60px);object-fit:cover;border-radius:18px;margin-top:18px}
+#v .n{font-size:18px;font-weight:700;margin:6px 0}
+#v button{background:#ff5577;color:#fff;border:0;border-radius:8px;cursor:pointer;padding:6px 14px}
+
+/* hint text */
+#h{position:absolute;right:12px;bottom:12px;color:#ddd;background:rgba(0,0,0,.5);
+    padding:6px 8px;border-radius:8px;font-size:13px}
+
+/* start overlay to enable music on mobile */
+#start{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.8);color:#fff;font-size:24px;z-index:999;cursor:pointer;
+}
+</style>
+</head>
+<body>
+<div id="c"></div>
+
+<div id="v"><img id="vi">
+  <div class="n" id="vn"></div><button id="x">Close</button>
+</div>
+
+<div id="h">Tap a photo</div>
+<div id="start">Tap to Start</div>
+
+<audio id="m" loop>
+  <source src="music.mp3" type="audio/mpeg">
+</audio>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+<script>
+const images=[
+  {src:"img1.jpg",name:"Nice"},
+  {src:"img2.jpg",name:"Beautiful"},
+  {src:"img3.jpg",name:"Cute"},
+  {src:"img4.jpg",name:"Lovely"},
+  {src:"img5.jpg",name:"Pretty"},
+  {src:"img6.jpg",name:"Amazing"}
+];
+
+// ---------- Three.js scene ----------
+const c=document.getElementById("c"),
+      scene=new THREE.Scene(),
+      cam=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,.1,1000);
+cam.position.set(0,1.5,10);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+c.appendChild(renderer.domElement);
+
+// lights & stars
+scene.add(new THREE.AmbientLight(0xffffff,.6));
+const dir=new THREE.DirectionalLight(0xffffff,.5);
+dir.position.set(5,10,5);
+scene.add(dir);
+const starGeo=new THREE.BufferGeometry(),cnt=600,pos=new Float32Array(cnt*3);
+for(let i=0;i<cnt;i++){
+  pos[i*3]=(Math.random()-.5)*140;
+  pos[i*3+1]=(Math.random()-.5)*80;
+  pos[i*3+2]=-Math.random()*120;
+}
+starGeo.setAttribute("position",new THREE.BufferAttribute(pos,3));
+const stars=new THREE.Points(starGeo,new THREE.PointsMaterial({
+  color:0xffffff,size:.25,opacity:.9,transparent:true
+}));
+scene.add(stars);
+
+// photos
+const loader=new THREE.TextureLoader(),group=new THREE.Group(),meshes=[];
+images.forEach(d=>{
+  const mesh=new THREE.Mesh(
+    new THREE.PlaneGeometry(2.2,2.8),
+    new THREE.MeshBasicMaterial({side:THREE.DoubleSide})
+  );
+  mesh.position.set((Math.random()-.5)*10,(Math.random()-.5)*5,-(5+Math.random()*10));
+  mesh.rotation.set((Math.random()-.5)*.15,(Math.random()-.5)*.4,0);
+  mesh.userData=d;
+  loader.load(d.src,t=>{
+    t.minFilter=THREE.LinearFilter;
+    mesh.material.map=t;
+  });
+  group.add(mesh);meshes.push(mesh);
+});
+scene.add(group);
+
+// raycast for taps
+const rc=new THREE.Raycaster(),mouse=new THREE.Vector2();
+let sel=null,tgt=null,anim=false,def=cam.position.clone();
+renderer.domElement.addEventListener("pointerdown",e=>{
+  const rect=renderer.domElement.getBoundingClientRect();
+  mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  rc.setFromCamera(mouse,cam);
+  const hit=rc.intersectObjects(meshes)[0];
+  if(hit){
+    sel=hit.object;
+    tgt=new THREE.Vector3(sel.position.x,sel.position.y,sel.position.z+4);
+    anim=true;
+    document.getElementById("h").style.opacity=0;
+  }
+});
+
+// viewer controls
+const v=document.getElementById("v"),
+      vi=document.getElementById("vi"),
+      vn=document.getElementById("vn"),
+      x=document.getElementById("x");
+function openView(m){vi.src=m.userData.src;vn.textContent=m.userData.name;v.style.display="block";}
+function closeView(){
+  v.style.display="none";tgt=def.clone();anim=true;sel=null;
+  document.getElementById("h").style.opacity=1;
+}
+x.onclick=closeView;
+
+// animation loop
+function loop(){
+  requestAnimationFrame(loop);
+  stars.rotation.y+=.0005;
+  meshes.forEach((m,i)=>{
+    m.position.y+=Math.sin(Date.now()*0.001+i)*0.001;
+    m.position.x+=Math.cos(Date.now()*0.001+i)*0.001;
+  });
+  if(tgt){
+    cam.position.lerp(tgt,.08);
+    if(sel) cam.lookAt(sel.position);
+    if(anim && cam.position.distanceTo(tgt)<.5){anim=false;sel&&openView(sel);}
+  } else cam.lookAt(group.position);
+  renderer.render(scene,cam);
+}
+loop();
+
+// responsive resize
+function resize(){
+  renderer.setSize(innerWidth,innerHeight);
+  cam.aspect=innerWidth/innerHeight;
+  cam.updateProjectionMatrix();
+}
+addEventListener("resize",resize);
+addEventListener("orientationchange",resize);
+addEventListener("keydown",e=>{
+  if(e.key==="Escape" && v.style.display==="block") closeView();
+});
+
+// music start overlay (needed for mobile auto-play)
+const music=document.getElementById("m");
+document.getElementById("start").addEventListener("pointerdown",()=>{
+  music.play().catch(()=>{});
+  document.getElementById("start").remove();
+});
+</script>
+</body>
+</html>
